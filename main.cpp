@@ -46,17 +46,19 @@ void generate_tasks() {
 }
 
 
-void executor_job(int tasks_to_do) {
-    for (int i = 0; i < tasks_to_do; ++i) {
+void executor_job() {
+    for (int i = 0; i < tasks_left; ++i) {
         pthread_mutex_lock(&mutex);
         int repeat = tl.tasks[i].repeat_num;
         pthread_mutex_unlock(&mutex);
         for (int j = 0; j < repeat; ++j) {
             pthread_mutex_lock(&mutex);
+            // computers are so bad at division
             global_res += cos(i * (1 / M_PI));
             pthread_mutex_unlock(&mutex);
         }
     }
+    tasks_left = 0;
 }
 
 
@@ -65,8 +67,11 @@ void *executor_start_routine(void *args) {
     for (int i = 0; i < tasks_lists_count; ++i) {
         MPI_Barrier(MPI_COMM_WORLD);
         generate_tasks();
-        executor_job(tasks_count);
+        tasks_left = tasks_count;
+        executor_job();
+
         for (int j = 0; j < size; ++j) {
+            // просим всех остальных прислать мне задачи
             if (j != rank) {
                 // я прошу задачки
                 MPI_Send(&rank, 1, MPI_INT, j, i_need_tasks, MPI_COMM_WORLD);
@@ -77,11 +82,17 @@ void *executor_start_routine(void *args) {
                     for (int k = 0; k < tasks_count; ++k) {
                         tl.tasks[k].repeat_num = 0;
                     }
+                    // получаем задачки
+                    MPI_Recv(tl.tasks, answer, MPI_INT, j, sending_tasks_for_you, MPI_COMM_WORLD,
+                             MPI_STATUS_IGNORE);
+                    pthread_mutex_lock(&mutex);
+                    tasks_left = answer;
+                    pthread_mutex_unlock(&mutex);
+                    // работаем дальше
+                    executor_job();
                 }
-                int tasks_to_do;
-                MPI_Recv(&tasks_to_do, 1, MPI_INT, j, sending_tasks_for_you, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                executor_job(tasks_to_do);
             }
+            iteration_counter++;
         }
         MPI_Barrier(MPI_COMM_WORLD);
     }
