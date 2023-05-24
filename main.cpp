@@ -66,25 +66,17 @@ void *executor_start_routine(void *args) {
     tl.tasks = new Task[tasks_count];
     for (int i = 0; i < tasks_lists_count; ++i) {
         MPI_Barrier(MPI_COMM_WORLD);
-        std::cout << "Iteration " << i << ". Initializing tasks. " << std::endl;
         generate_tasks();
         tasks_left = tasks_count;
         executor_job();
-        std::cout << "Process " << rank << " executed tasks " << " Now requesting for some additional. " << std::endl;
         for (int j = 0; j < size; ++j) {
             // просим всех остальных прислать мне задачи
             if (j != rank) {
-                std::cout << "Process " << rank << " is asking " << j <<
-                          " for some tasks." << std::endl;
                 // я прошу задачки
                 MPI_Send(&rank, 1, MPI_INT, j, i_need_tasks, MPI_COMM_WORLD);
                 // ждём
-                std::cout << "Process " << rank << "waiting for task count"
-                          << std::endl;
                 int answer;
                 MPI_Recv(&answer, 1, MPI_INT, j, sending_tasks_count_for_you, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                std::cout <<  "Process " << j << " answered " << answer
-                          << std::endl;
                 if (answer != no_tasks_for_you) {
                     for (int k = 0; k < tasks_count; ++k) {
                         tl.tasks[k].repeat_num = 0;
@@ -123,17 +115,11 @@ void *handler_start_routine(void *args) {
     while (!tasks_done) {
         // смотрим кто попросил
         MPI_Recv(&executor_rank, 1, MPI_INT, MPI_ANY_SOURCE, i_need_tasks, MPI_COMM_WORLD, &status);
-        if (executor_rank == executor_is_done) {
-            std::cout << "Executor finished work on proc " << executor_rank  << std::endl;
-        }
         pthread_mutex_lock(&mutex);
-        std::cout << "Process " << executor_rank << " requested tasks. I have " <<
-                  tasks_left << " tasks now. "  << std::endl;
         // считаем сколько дать и отправляем
         if (tasks_left >= 2) {
             to_send = tasks_left / (size * 2);
             tasks_left = tasks_left / (size * 2);
-            std::cout  << "Sharing " << to_send << " tasks. " << std::endl;
             MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
             MPI_Send(&tl.tasks[tasks_count - to_send], to_send, MPI_INT, executor_rank, sending_tasks_for_you,
                      MPI_COMM_WORLD);
