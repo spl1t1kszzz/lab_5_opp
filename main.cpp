@@ -6,9 +6,10 @@
 constexpr int tasks_count = 1000;
 constexpr int tasks_lists_count = 100;
 constexpr int i_need_tasks = 777;
-constexpr int tasks_count_send_tag = 100;
 constexpr int no_tasks_for_you = -1;
 constexpr int sending_tasks_for_you = 0;
+constexpr int sending_tasks_count_for_you = 1;
+constexpr int executor_is_done = 2;
 
 typedef struct {
     int repeat_num;
@@ -27,6 +28,8 @@ double global_res = 0;
 int tasks_left;
 
 bool tasks_done;
+
+
 
 // executor and handler
 pthread_t threads[2];
@@ -69,7 +72,7 @@ void *executor_start_routine(void *args) {
                 MPI_Send(&rank, 1, MPI_INT, j, i_need_tasks, MPI_COMM_WORLD);
                 // ждём
                 int answer;
-                MPI_Recv(&answer, 1, MPI_INT, j, tasks_count_send_tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&answer, 1, MPI_INT, j, sending_tasks_count_for_you, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 if (answer != no_tasks_for_you) {
                     for (int k = 0; k < tasks_count; ++k) {
                         tl.tasks[k].repeat_num = 0;
@@ -83,11 +86,38 @@ void *executor_start_routine(void *args) {
         MPI_Barrier(MPI_COMM_WORLD);
     }
     delete[] tl.tasks;
+    pthread_mutex_lock(&mutex);
+    tasks_done = true;
+    pthread_mutex_unlock(&mutex);
+    int Signal = executor_is_done;
+    MPI_Send(&Signal, 1, MPI_INT, rank, i_need_tasks, MPI_COMM_WORLD);
+    pthread_exit(nullptr);
 }
 
 
 void *handler_start_routine(void *args) {
+    int executor_rank;
+    int to_send;
+    MPI_Status status;
+    // синхронизируемся
     MPI_Barrier(MPI_COMM_WORLD);
+    while (!tasks_done) {
+        // смотрим кто попросил
+        MPI_Recv(&executor_rank, 1, MPI_INT, MPI_ANY_SOURCE, i_need_tasks, MPI_COMM_WORLD, &status);
+        pthread_mutex_lock(&mutex);
+        // считаем сколько дать и отправляем
+        if (tasks_left >= 2) {
+            to_send = tasks_left / (size * 2);
+            tasks_left = tasks_left / (size * 2);
+            MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
+            MPI_Send(&tl.tasks[tasks_count - to_send], to_send, MPI_INT, executor_rank, sending_tasks_for_you, MPI_COMM_WORLD);
+        } else {
+            to_send = no_tasks_for_you;
+            MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
+        }
+        pthread_mutex_unlock(&mutex);
+    }
+    pthread_exit(nullptr);
 }
 
 int main(int argc, char **argv) {
