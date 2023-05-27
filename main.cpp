@@ -3,8 +3,8 @@
 #include <iostream>
 #include <cmath>
 
-constexpr int tasks_count = 100;
-constexpr int tasks_lists_count = 20;
+constexpr int tasks_count = 10000;
+constexpr int tasks_lists_count = 5;
 constexpr int i_need_tasks = 777;
 constexpr int no_tasks_for_you = -1;
 constexpr int sending_tasks_for_you = 0;
@@ -43,7 +43,7 @@ TaskList tl;
 
 void generate_tasks() {
     for (int i = 0; i < tasks_count; ++i) {
-        tl.tasks[i].repeat_num = std::abs(rank - (iteration_counter % size)) * alpha;
+        tl.tasks[i].repeat_num = abs(50 - i % 100) * alpha;
     }
 }
 
@@ -56,7 +56,7 @@ void executor_job() {
         for (int j = 0; j < repeat; ++j) {
             pthread_mutex_lock(&mutex);
             // computers are so bad at division
-            global_res += cos(j * (1 / M_PI));
+            global_res += cos(0.001223);
             pthread_mutex_unlock(&mutex);
         }
         tasks_done_counter++;
@@ -120,7 +120,7 @@ void *handler_start_routine(void *args) {
         pthread_mutex_lock(&mutex);
         // считаем сколько дать и отправляем
         if (tasks_left >= 2) {
-            to_send = tasks_left / (size *2);
+            to_send = tasks_left / (size * 2);
             tasks_left = tasks_left - tasks_left / (size * 2);
             MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
             MPI_Send(&tl.tasks[tasks_count - to_send], to_send, MPI_INT, executor_rank, sending_tasks_for_you,
@@ -148,12 +148,23 @@ int main(int argc, char **argv) {
     pthread_attr_t pthread_attr;
     pthread_attr_init(&pthread_attr);
 
+    auto start = MPI_Wtime();
     pthread_create(&threads[0], &pthread_attr, executor_start_routine, nullptr);
     pthread_create(&threads[1], &pthread_attr, handler_start_routine, nullptr);
     pthread_join(threads[0], nullptr);
     pthread_join(threads[1], nullptr);
     pthread_attr_destroy(&pthread_attr);
     pthread_mutex_destroy(&mutex);
+    auto time_taken_in_proc = MPI_Wtime() - start;
+    double global_time_taken;
+    MPI_Reduce(&time_taken_in_proc, &global_time_taken, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        std::cout << "Time taken: " << global_time_taken << std::endl;
+        std::cout << "Result: " << global_res << std::endl;
+    }
     MPI_Finalize();
     return 0;
 }
+
+
+
