@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(lab_5_opp)
-add_executable(lab_5_opp main.cpp)
+add_executable(lab_5_opp main.cpp utils.h)
 find_package(MPI REQUIRED)
 include_directories(${MPI_INCLUDE_PATH})
 target_link_libraries(lab_5_opp ${MPI_LIBRARIES})

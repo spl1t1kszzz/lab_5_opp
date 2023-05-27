@@ -3,14 +3,14 @@
 #include <iostream>
 #include <cmath>
 
-constexpr int tasks_count = 1000;
-constexpr int tasks_lists_count = 100;
+constexpr int tasks_count = 100;
+constexpr int tasks_lists_count = 20;
 constexpr int i_need_tasks = 777;
 constexpr int no_tasks_for_you = -1;
 constexpr int sending_tasks_for_you = 0;
 constexpr int sending_tasks_count_for_you = 1;
 constexpr int executor_is_done = 2;
-constexpr int alpha = 1000000;
+constexpr int alpha = 1000;
 
 typedef struct {
     int repeat_num;
@@ -25,6 +25,8 @@ int rank, size;
 int iteration_counter = 0;
 
 double global_res = 0;
+
+int tasks_done_counter = 0;
 
 int tasks_left;
 
@@ -54,9 +56,10 @@ void executor_job() {
         for (int j = 0; j < repeat; ++j) {
             pthread_mutex_lock(&mutex);
             // computers are so bad at division
-            global_res += cos(i * (1 / M_PI));
+            global_res += cos(j * (1 / M_PI));
             pthread_mutex_unlock(&mutex);
         }
+        tasks_done_counter++;
     }
     tasks_left = 0;
 }
@@ -66,8 +69,8 @@ void *executor_start_routine(void *args) {
     tl.tasks = new Task[tasks_count];
     for (int i = 0; i < tasks_lists_count; ++i) {
         MPI_Barrier(MPI_COMM_WORLD);
-        generate_tasks();
         tasks_left = tasks_count;
+        generate_tasks();
         executor_job();
         for (int j = 0; j < size; ++j) {
             // просим всех остальных прислать мне задачи
@@ -82,7 +85,6 @@ void *executor_start_routine(void *args) {
                         tl.tasks[k].repeat_num = 0;
                     }
                     // получаем задачки
-                    std::cout << "waiting for tasks" << std::endl;
                     MPI_Recv(tl.tasks, answer, MPI_INT, j, sending_tasks_for_you, MPI_COMM_WORLD,
                              MPI_STATUS_IGNORE);
                     pthread_mutex_lock(&mutex);
@@ -100,7 +102,7 @@ void *executor_start_routine(void *args) {
     pthread_mutex_lock(&mutex);
     tasks_done = true;
     pthread_mutex_unlock(&mutex);
-    int Signal = executor_is_done;
+    int Signal = -1;
     MPI_Send(&Signal, 1, MPI_INT, rank, i_need_tasks, MPI_COMM_WORLD);
     pthread_exit(nullptr);
 }
@@ -118,8 +120,8 @@ void *handler_start_routine(void *args) {
         pthread_mutex_lock(&mutex);
         // считаем сколько дать и отправляем
         if (tasks_left >= 2) {
-            to_send = tasks_left / (size * 2);
-            tasks_left = tasks_left / (size * 2);
+            to_send = tasks_left / (size *2);
+            tasks_left = tasks_left - tasks_left / (size * 2);
             MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
             MPI_Send(&tl.tasks[tasks_count - to_send], to_send, MPI_INT, executor_rank, sending_tasks_for_you,
                      MPI_COMM_WORLD);
