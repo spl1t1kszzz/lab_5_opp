@@ -34,7 +34,7 @@ bool tasks_done;
 
 
 // executor and handler
-pthread_t threads[2];
+pthread_t threads[1];
 
 pthread_mutex_t mutex;
 
@@ -43,7 +43,7 @@ TaskList tl;
 
 void generate_tasks() {
     for (int i = 0; i < tasks_count / size; ++i) {
-        tl.tasks[i].repeat_num = ((rank + 1) * tasks_count / size + i) * 10;
+        tl.tasks[i].repeat_num = ((rank+1) * tasks_count / size + i) * 10;
     }
 }
 
@@ -72,67 +72,16 @@ void *executor_start_routine(void *args) {
         tasks_left = tasks_count / size;
         generate_tasks();
         executor_job();
-        for (int j = 0; j < size; ++j) {
-            // просим всех остальных прислать мне задачи
-            if (j != rank) {
-                // я прошу задачки
-                MPI_Send(&rank, 1, MPI_INT, j, i_need_tasks, MPI_COMM_WORLD);
-                // ждём
-                int answer;
-                MPI_Recv(&answer, 1, MPI_INT, j, sending_tasks_count_for_you, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                if (answer != no_tasks_for_you) {
-                    for (int k = 0; k < tasks_count / size; ++k) {
-                        tl.tasks[k].repeat_num = 0;
-                    }
-                    // получаем задачки
-                    MPI_Recv(tl.tasks, answer, MPI_INT, j, sending_tasks_for_you, MPI_COMM_WORLD,
-                             MPI_STATUS_IGNORE);
-                    pthread_mutex_lock(&mutex);
-                    tasks_left = answer;
-                    pthread_mutex_unlock(&mutex);
-                    // работаем дальше
-                    executor_job();
-                }
-            }
-            iteration_counter++;
-        }
+        pthread_mutex_lock(&mutex);
+        iteration_counter++;
+        pthread_mutex_unlock(&mutex);
+        std::cout << "Process " << rank << " done " << tasks_count / size << " tasks." << std::endl;
         MPI_Barrier(MPI_COMM_WORLD);
     }
     delete[] tl.tasks;
-    pthread_mutex_lock(&mutex);
-    tasks_done = true;
-    pthread_mutex_unlock(&mutex);
-    int Signal = -1;
-    MPI_Send(&Signal, 1, MPI_INT, rank, i_need_tasks, MPI_COMM_WORLD);
     pthread_exit(nullptr);
 }
 
-
-void *handler_start_routine(void *args) {
-    int executor_rank;
-    int to_send;
-    MPI_Status status;
-    // синхронизируемся
-    MPI_Barrier(MPI_COMM_WORLD);
-    while (!tasks_done) {
-        // смотрим кто попросил
-        MPI_Recv(&executor_rank, 1, MPI_INT, MPI_ANY_SOURCE, i_need_tasks, MPI_COMM_WORLD, &status);
-        pthread_mutex_lock(&mutex);
-        // считаем сколько дать и отправляем
-        if (tasks_left >= 2) {
-            to_send = tasks_left / (size * 3);
-            tasks_left = tasks_left - to_send;
-            MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
-            MPI_Send(&tl.tasks[tasks_count / size - to_send], to_send, MPI_INT, executor_rank, sending_tasks_for_you,
-                     MPI_COMM_WORLD);
-        } else {
-            to_send = no_tasks_for_you;
-            MPI_Send(&to_send, 1, MPI_INT, executor_rank, sending_tasks_count_for_you, MPI_COMM_WORLD);
-        }
-        pthread_mutex_unlock(&mutex);
-    }
-    pthread_exit(nullptr);
-}
 
 int main(int argc, char **argv) {
     int provided_MPI_thread_level;
@@ -150,9 +99,7 @@ int main(int argc, char **argv) {
 
     auto start = MPI_Wtime();
     pthread_create(&threads[0], &pthread_attr, executor_start_routine, nullptr);
-    pthread_create(&threads[1], &pthread_attr, handler_start_routine, nullptr);
     pthread_join(threads[0], nullptr);
-    pthread_join(threads[1], nullptr);
     pthread_attr_destroy(&pthread_attr);
     pthread_mutex_destroy(&mutex);
     auto time_taken_in_proc = MPI_Wtime() - start;
